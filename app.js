@@ -1,298 +1,380 @@
-class BPlusTreeNode {
-    constructor(order, isLeaf = false) {
-      this.order = order;
-      this.isLeaf = isLeaf;
-      this.keys = [];
-      this.children = [];
-    }
-  
-    isFull() {
-      return this.keys.length >= this.order - 1;
-    }
-  
-    findIndex(key) {
-      for (let i = 0; i < this.keys.length; i++) {
-        if (this.keys[i] >= key) return i;
-      }
-      return this.keys.length;
-    }
-  }
-  
-  class BPlusTree {
+class Node {
     constructor(order) {
-      this.root = new BPlusTreeNode(order, true);
-      this.order = order;
+        this.order = order;
+        this.values = [];
+        this.keys = [];
+        this.nextKey = null;
+        this.parent = null;
+        this.checkLeaf = false;
     }
-  
-    insert(key) {
-      const root = this.root;
-      if (root.isFull()) {
-        const newRoot = new BPlusTreeNode(this.order);
-        newRoot.children.push(this.root);
-        this.splitChild(newRoot, 0);
-        this.root = newRoot;
-      }
-      this._insertNonFull(this.root, key);
-      this.visualize();
-    }
-  
-    _insertNonFull(node, key) {
-      if (node.isLeaf) {
-        const index = node.findIndex(key);
-        node.keys.splice(index, 0, key);
-      } else {
-        const index = node.findIndex(key);
-        if (node.children[index].isFull()) {
-          this.splitChild(node, index);
-          if (key > node.keys[index]) index++;
-        }
-        this._insertNonFull(node.children[index], key);
-      }
-    }
-  
-    splitChild(parent, index) {
-      const node = parent.children[index];
-      const midIndex = Math.floor((this.order - 1) / 2);
-  
-      const newNode = new BPlusTreeNode(this.order, node.isLeaf);
-      parent.keys.splice(index, 0, node.keys[midIndex]);
-      parent.children.splice(index + 1, 0, newNode);
-  
-      newNode.keys = node.keys.splice(midIndex + 1);
-      if (!node.isLeaf) {
-        newNode.children = node.children.splice(midIndex + 1);
-      }
-    }
-  
-    delete(key) {
-      this._delete(this.root, key);
-      if (this.root.keys.length === 0 && !this.root.isLeaf) {
-        this.root = this.root.children[0];
-      }
-      this.visualize();
-    }
-  
-    _delete(node, key) {
-      const index = node.findIndex(key);
-      if (node.isLeaf) {
-        if (node.keys[index] === key) node.keys.splice(index, 1);
-      } else {
-        if (node.keys[index] === key) {
-          if (node.children[index].keys.length >= Math.ceil((this.order - 1) / 2)) {
-            node.keys[index] = this._deletePredecessor(node.children[index]);
-          } else if (node.children[index + 1].keys.length >= Math.ceil((this.order - 1) / 2)) {
-            node.keys[index] = this._deleteSuccessor(node.children[index + 1]);
-          } else {
-            this._mergeChildren(node, index);
-            this._delete(node.children[index], key);
-          }
-        } else {
-          if (node.children[index].keys.length < Math.ceil((this.order - 1) / 2)) {
-            if (index > 0 && node.children[index - 1].keys.length >= Math.ceil((this.order - 1) / 2)) {
-              this._borrowFromPrev(node, index);
-            } else if (index < node.keys.length && node.children[index + 1].keys.length >= Math.ceil((this.order - 1) / 2)) {
-              this._borrowFromNext(node, index);
-            } else {
-              if (index < node.keys.length) {
-                this._mergeChildren(node, index);
-              } else {
-                this._mergeChildren(node, index - 1);
-                index--;
-              }
+
+    insertAtLeaf(value) {
+        if (this.values.length) {
+            for (let i = 0; i < this.values.length; i++) {
+                if (value === this.values[i]) {
+                    return;
+                } else if (value < this.values[i]) {
+                    this.values.splice(i, 0, value);
+                    break;
+                } else if (i + 1 === this.values.length) {
+                    this.values.push(value);
+                    break;
+                }
             }
-          }
-          this._delete(node.children[index], key);
+        } else {
+            this.values = [value];
         }
-      }
+        
     }
-  
-    _deletePredecessor(node) {
-      while (!node.isLeaf) {
-        node = node.children[node.keys.length];
-      }
-      return node.keys.pop();
+}
+
+class BplusTree {
+    constructor(order) {
+        this.root = new Node(order);
+        this.root.checkLeaf = true;
     }
-  
-    _deleteSuccessor(node) {
-      while (!node.isLeaf) {
-        node = node.children[0];
-      }
-      return node.keys.shift();
+
+    cloneNode(node) {
+        const newNode = new Node(node.order);
+        newNode.values = [...node.values];
+        newNode.keys = node.keys.map(key => Array.isArray(key) ? [...key] : this.cloneNode(key));
+        newNode.nextKey = node.nextKey;
+        newNode.parent = node.parent;
+        newNode.checkLeaf = node.checkLeaf;
+        return newNode;
     }
-  
-    _mergeChildren(parent, index) {
-      const leftChild = parent.children[index];
-      const rightChild = parent.children.splice(index + 1, 1)[0];
-      leftChild.keys.push(parent.keys.splice(index, 1)[0], ...rightChild.keys);
-      if (!leftChild.isLeaf) {
-        leftChild.children.push(...rightChild.children);
-      }
+
+    clone() {
+        const newTree = new BplusTree(this.root.order);
+        newTree.root = this.cloneNode(this.root);
+        return newTree;
     }
-  
-    _borrowFromPrev(parent, index) {
-      const child = parent.children[index];
-      const sibling = parent.children[index - 1];
-  
-      child.keys.unshift(parent.keys[index - 1]);
-      parent.keys[index - 1] = sibling.keys.pop();
-  
-      if (!child.isLeaf) {
-        child.children.unshift(sibling.children.pop());
-      }
+
+    insert(value) {
+        value = parseInt(value, 10);
+        saveState(); // Save state before modification
+        const oldNode = this.search(value);
+        oldNode.insertAtLeaf(value);
+
+        if (oldNode.values.length === oldNode.order) {
+            const node1 = new Node(oldNode.order);
+            node1.checkLeaf = true;
+            node1.parent = oldNode.parent;
+            const mid = Math.ceil(oldNode.order / 2) - 1;
+            node1.values = oldNode.values.slice(mid + 1);
+            node1.keys = oldNode.keys.slice(mid + 1);
+            node1.nextKey = oldNode.nextKey;
+            oldNode.values = oldNode.values.slice(0, mid + 1);
+            oldNode.keys = oldNode.keys.slice(0, mid + 1);
+            oldNode.nextKey = node1;
+            this.insertInParent(oldNode, node1.values[0], node1);
+        }
     }
-  
-    _borrowFromNext(parent, index) {
-      const child = parent.children[index];
-      const sibling = parent.children[index + 1];
-  
-      child.keys.push(parent.keys[index]);
-      parent.keys[index] = sibling.keys.shift();
-  
-      if (!child.isLeaf) {
-        child.children.push(sibling.children.shift());
-      }
+
+    search(value) {
+        value = parseInt(value, 10);
+        let currentNode = this.root;
+        while (!currentNode.checkLeaf) {
+            for (let i = 0; i < currentNode.values.length; i++) {
+                if (value === currentNode.values[i]) {
+                    currentNode = currentNode.keys[i + 1];
+                    break;
+                } else if (value < currentNode.values[i]) {
+                    currentNode = currentNode.keys[i];
+                    break;
+                } else if (i + 1 === currentNode.values.length) {
+                    currentNode = currentNode.keys[i + 1];
+                    break;
+                }
+            }
+        }
+        return currentNode;
+        
     }
-  
+
+    delete(value) {
+        value = parseInt(value, 10);
+        saveState(); // Save state before modification
+        const node_ = this.search(value);
+        let found = false;
+        
+        for (let i = 0; i < node_.values.length; i++) {
+            if (node_.values[i] === value) {
+                found = true;
+                if (node_ === this.root) {
+                    node_.values.splice(i, 1);
+                } else {
+                    node_.values.splice(i, 1);
+                    this.deleteEntry(node_, value);
+                }
+                break;
+            }
+        }
+        if (!found) {
+            console.log("Value not in Tree");
+            return;
+        }
+        
+    }
+
+    insertInParent(n, value, ndash) {
+        if (this.root === n) {
+            const rootNode = new Node(n.order);
+            rootNode.values = [value];
+            rootNode.keys = [n, ndash];
+            this.root = rootNode;
+            n.parent = rootNode;
+            ndash.parent = rootNode;
+            return;
+        }
+
+        const parentNode = n.parent;
+        for (let i = 0; i < parentNode.keys.length; i++) {
+            if (parentNode.keys[i] === n) {
+                parentNode.values.splice(i, 0, value);
+                parentNode.keys.splice(i + 1, 0, ndash);
+                if (parentNode.keys.length > parentNode.order) {
+                    const parentdash = new Node(parentNode.order);
+                    parentdash.parent = parentNode.parent;
+                    const mid = Math.ceil(parentNode.order / 2) - 1;
+                    parentdash.values = parentNode.values.slice(mid + 1);
+                    parentdash.keys = parentNode.keys.slice(mid + 1);
+                    const value_ = parentNode.values[mid];
+                    parentNode.values = parentNode.values.slice(0, mid);
+                    parentNode.keys = parentNode.keys.slice(0, mid + 1);
+                    for (const child of parentNode.keys) {
+                        child.parent = parentNode;
+                    }
+                    for (const child of parentdash.keys) {
+                        child.parent = parentdash;
+                    }
+                    this.insertInParent(parentNode, value_, parentdash);
+                }
+                break;
+            }
+        }
+    }
+
+    deleteEntry(node_, value) {
+        if (!node_.checkLeaf) {
+            for (let i = 0; i < node_.keys.length; i++) {
+                if (node_.values[i] === value) {
+                    node_.values.splice(i, 1);
+                    node_.keys.splice(i + 1, 1);
+                    break;
+                }
+            }
+        }
+
+        if (this.root === node_ && node_.keys.length === 1) {
+            this.root = node_.keys[0];
+            this.root.parent = null;
+            return;
+        }
+
+        const minKeys = Math.ceil(node_.order / 2);
+        const parentNode = node_.parent;
+        let sibling, siblingValue, isPrevSibling = false;
+
+        for (let i = 0; i < parentNode.keys.length; i++) {
+            if (parentNode.keys[i] === node_) {
+                if (i > 0) {
+                    sibling = parentNode.keys[i - 1];
+                    siblingValue = parentNode.values[i - 1];
+                    isPrevSibling = true;
+                } else if (i < parentNode.keys.length - 1) {
+                    sibling = parentNode.keys[i + 1];
+                    siblingValue = parentNode.values[i];
+                }
+                break;
+            }
+        }
+
+        if (node_.values.length + sibling.values.length < node_.order) {
+            if (!isPrevSibling) {
+                [node_, sibling] = [sibling, node_];
+            }
+            sibling.keys = sibling.keys.concat(node_.keys);
+            if (!node_.checkLeaf) {
+                sibling.values.push(siblingValue);
+            } else {
+                sibling.nextKey = node_.nextKey;
+            }
+            sibling.values = sibling.values.concat(node_.values);
+            for (const child of sibling.keys) {
+                child.parent = sibling;
+            }
+            this.deleteEntry(parentNode, siblingValue);
+        } else {
+            if (isPrevSibling) {
+                if (!node_.checkLeaf) {
+                    const moveKey = sibling.keys.pop();
+                    const moveValue = sibling.values.pop();
+                    node_.keys.unshift(moveKey);
+                    node_.values.unshift(siblingValue);
+                    parentNode.values[parentNode.values.indexOf(siblingValue)] = moveValue;
+                } else {
+                    const moveValue = sibling.values.pop();
+                    node_.values.unshift(moveValue);
+                    parentNode.values[parentNode.values.indexOf(siblingValue)] = moveValue;
+                }
+            } else {
+                if (!node_.checkLeaf) {
+                    const moveKey = sibling.keys.shift();
+                    const moveValue = sibling.values.shift();
+                    node_.keys.push(moveKey);
+                    node_.values.push(siblingValue);
+                    parentNode.values[parentNode.values.indexOf(siblingValue)] = moveValue;
+                } else {
+                    const moveValue = sibling.values.shift();
+                    node_.values.push(moveValue);
+                    parentNode.values[parentNode.values.indexOf(siblingValue)] = sibling.values[0];
+                }
+            }
+        }
+    }
+
     visualize() {
-      d3.select("#visualization").selectAll("*").remove();
-  
-      const svgWidth = 1200; // Set a width for the SVG canvas
-      const svgHeight = 600; // Set a height for the SVG canvas
-  
-      const svg = d3.select("#visualization").append("svg")
-                    .attr("width", svgWidth)
-                    .attr("height", svgHeight)
-                    .call(d3.zoom().on("zoom", (event) => {
-                      svg.attr("transform", event.transform);
-                    }))
-                    .append("g");
-  
-      const nodeHeight = 30;
-      const nodeWidth = 40;
-  
-      const calculateNodeWidth = (node) => {
-        return node.keys.length * nodeWidth + (node.keys.length - 1) * 20;
-      };
-  
-      const calculatePositions = (node, depth = 0, posX = 0) => {
-        if (!node) return posX;
-  
-        if (!node.isLeaf) {
-          let childX = posX;
-          node.children.forEach((child, i) => {
-            childX = calculatePositions(child, depth + 1, childX);
-          });
-  
-          const firstChildPos = node.children[0]._x;
-          const lastChildPos = node.children[node.children.length - 1]._x;
-          node._x = (firstChildPos + lastChildPos) / 2;
-        } else {
-          node._x = posX + calculateNodeWidth(node) / 2;
-        }
-        node._y = depth * (nodeHeight + 50);
-  
-        return node._x + calculateNodeWidth(node) / 2 + 20;
-      };
-  
-      const renderNode = (node) => {
-        if (!node) return;
-  
-        const group = svg.append("g")
-                         .attr("transform", `translate(${node._x}, ${node._y})`);
-  
-        group.append("rect")
-             .attr("x", -calculateNodeWidth(node) / 2)
-             .attr("y", 0)
-             .attr("width", calculateNodeWidth(node))
-             .attr("height", nodeHeight)
-             .attr("fill", "lightblue")
-             .attr("stroke", "black");
-  
-        group.selectAll("text")
-             .data(node.keys)
-             .enter()
-             .append("text")
-             .attr("x", (d, i) => -calculateNodeWidth(node) / 2 + nodeWidth / 2 + i * (nodeWidth + 20))
-             .attr("y", nodeHeight / 2)
-             .attr("text-anchor", "middle")
-             .attr("alignment-baseline", "middle")
-             .text(d => d);
-  
-        if (!node.isLeaf) {
-          node.children.forEach((child) => {
-            renderNode(child);
-            svg.append("line")
-               .attr("x1", node._x)
-               .attr("y1", node._y + nodeHeight)
-               .attr("x2", child._x)
-               .attr("y2", child._y)
-               .attr("stroke", "black");
-          });
-        }
-      };
-  
-      const adjustWidths = (node) => {
-        if (!node) return 0;
-  
-        if (node.isLeaf) {
-          node._width = calculateNodeWidth(node);
-        } else {
-          node._width = 0;
-          node.children.forEach((child) => {
-            node._width += adjustWidths(child) + 20;
-          });
-        }
-        return node._width;
-      };
-  
-      adjustWidths(this.root);
-      calculatePositions(this.root);
-      renderNode(this.root);
+        d3.select("#visualization").selectAll("*").remove();
+
+        const svgWidth = window.innerWidth; // Set width to window width
+        const svgHeight = window.innerHeight; // Set height to window height
+
+        const svg = d3.select("#visualization").append("svg")
+            .attr("width", svgWidth)
+            .attr("height", svgHeight)
+            .call(d3.zoom().on("zoom", (event) => {
+                svg.attr("transform", event.transform);
+            }))
+            .append("g");
+
+        const nodeHeight = 30;
+        const nodeWidth = 40;
+        const nodeSpacing = 20;
+
+        const calculateNodeWidth = (node) => {
+            return node.values.length * nodeWidth + (node.values.length - 1) * nodeSpacing;
+        };
+
+        let temp = 0;
+        const calculatePositions = (node, depth = 0, posX = 0) => {
+            if (!node) return posX;
+
+            if (!node.checkLeaf) {
+                let currentX = posX;
+                node.keys.forEach((child, i) => {
+                    currentX = calculatePositions(child, depth + 1, currentX);
+                    if (i < node.values.length) {
+                        currentX += nodeSpacing;
+                    }
+                });
+
+                const firstChildPos = node.keys[0]._x;
+                const lastChildPos = node.keys[node.keys.length - 1]._x;
+                node._x = (firstChildPos + lastChildPos) / 2;
+            } else {
+                node._x = temp + calculateNodeWidth(node) ;
+                temp = node._x +  node.values.length * nodeSpacing;
+            }
+            node._y = 20+ depth * (nodeHeight + 100);
+
+            return node._x + calculateNodeWidth(node) / 2 + nodeSpacing;
+        };
+
+        const renderNode = (node) => {
+            if (!node) return;
+
+            const group = svg.append("g")
+                .attr("transform", `translate(${node._x}, ${node._y})`);
+
+            group.append("rect")
+                .attr("x", -calculateNodeWidth(node) / 2)
+                .attr("y", 0)
+                .attr("width", calculateNodeWidth(node))
+                .attr("height", nodeHeight)
+                .attr("fill", "lightblue")
+                .attr("stroke", "black");
+
+            group.selectAll("text")
+                .data(node.values)
+                .enter()
+                .append("text")
+                .attr("x", (d, i) => -calculateNodeWidth(node) / 2 + nodeWidth / 2 + i * (nodeWidth + nodeSpacing))
+                .attr("y", nodeHeight / 2)
+                .attr("text-anchor", "middle")
+                .attr("alignment-baseline", "middle")
+                .text(d => d);
+
+            if (!node.checkLeaf) {
+                node.keys.forEach((child) => {
+                    renderNode(child);
+                    svg.append("line")
+                        .attr("x1", node._x)
+                        .attr("y1", node._y + nodeHeight)
+                        .attr("x2", child._x)
+                        .attr("y2", child._y)
+                        .attr("stroke", "black");
+                });
+            }
+        };
+
+        calculatePositions(this.root);
+        renderNode(this.root);
     }
-  }
-  
-  // Initialization and Functions
-  let bptree = null;
-  
-  function createTree() {
-    const order = prompt("Enter the order (number of pointers per node) for the B+ tree:");
-    if (order && parseInt(order) > 2) {
-      bptree = new BPlusTree(parseInt(order));
-      bptree.visualize();
+}
+
+let tree;
+const historyStack = [];
+
+function saveState() {
+    if (tree) {
+        historyStack.push(tree.clone());
+    }
+}
+
+function undo() {
+    if (historyStack.length > 0) {
+        tree = historyStack.pop();
+        tree.visualize();
     } else {
-      alert("Please enter a valid order greater than 2.");
+        console.log("No operations to undo");
     }
-  }
-  
-  function insertElement() {
-    if (!bptree) {
-      alert("Please create the tree first.");
-      return;
+}
+
+function createTree() {
+    const order = prompt("Enter the order of the B+ Tree:", 3);
+    if (order) {
+        tree = new BplusTree(Number(order));
+        tree.visualize();
     }
-    const key = prompt("Enter key to insert:");
-    if (key) {
-      bptree.insert(parseInt(key));
+}
+
+function insertElement() {
+    const value = parseInt(prompt("Enter the value to insert:"), 10);
+    if (!isNaN(value) && tree) {
+        tree.insert(value);
+        tree.visualize();
     }
-  }
-  
-  function deleteElement() {
-    if (!bptree) {
-      alert("Please create the tree first.");
-      return;
+}
+
+function insertRandomElement() {
+    if (tree) {
+        const value = Math.floor(Math.random() * 100);
+        tree.insert(value);
+        tree.visualize();
     }
-    const key = prompt("Enter key to delete:");
-    if (key) {
-      bptree.delete(parseInt(key));
+}
+
+function deleteElement() {
+    const value = parseInt(prompt("Enter the value to delete:"), 10);
+    if (!isNaN(value) && tree) {
+        tree.delete(value);
+        tree.visualize();
     }
-  }
-  
-  function insertRandomElement() {
-    if (!bptree) {
-      alert("Please create the tree first.");
-      return;
+}
+
+window.addEve/ntListener('resize', () => {
+    if (tree) {
+        tree.visualize();
     }
-    const key = Math.floor(Math.random() * 100); // Generates a random number between 0 and 99
-    bptree.insert(key);
-    alert(`Random key ${key} inserted into the tree.`);
-  }
-  
+});
